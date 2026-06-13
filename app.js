@@ -12,11 +12,15 @@ const BRICK = 16;     // studs per brick edge
 const S = 8;          // display pixels per stud
 const MARGIN = 24;    // gutter for plate-number labels
 
-// calibration constants (fit to the reference photo of the assembled set)
-const LAT_TOP = 94;       // latitude mapped to row 0
-const LAT_BOTTOM = -84;   // latitude mapped to row GRID_H
-const LON_CENTER = 10;    // map centered on ~10°E (Africa/Europe)
-const LON_SPAN = 360;     // full longitude across the width
+// calibration constants (fit to the reference photo of the assembled set,
+// ~95% stud agreement outside Antarctica). Longitude is linear; latitude is
+// piecewise-linear with the equator at ROW_EQ, since the set scales the
+// southern hemisphere slightly more than the northern.
+const LAT_TOP = 93.56;     // latitude at row 0
+const LAT_BOTTOM = -90.78; // latitude at row GRID_H (southern scale)
+const ROW_EQ = 41.79;      // row of the equator
+const LON_CENTER = 11.38;  // map centered on ~11°E (Africa/Europe)
+const LON_SPAN = 359.88;   // full longitude across the width
 
 const cssW = GRID_W * S;
 const cssH = GRID_H * S;
@@ -28,22 +32,30 @@ const ctx = canvas.getContext("2d");
 const statusEl = document.getElementById("status");
 const resultEl = document.getElementById("result");
 
-// [lon,lat] -> fractional [col,row] on the grid (linear in both)
+// piecewise-linear latitude: row 0 -> LAT_TOP, ROW_EQ -> 0, GRID_H -> LAT_BOTTOM
+function rowToLat(y) {
+  return y < ROW_EQ
+    ? LAT_TOP * (1 - y / ROW_EQ)
+    : LAT_BOTTOM * ((y - ROW_EQ) / (GRID_H - ROW_EQ));
+}
+function latToRow(lat) {
+  return lat >= 0
+    ? ROW_EQ * (1 - lat / LAT_TOP)
+    : ROW_EQ + (lat / LAT_BOTTOM) * (GRID_H - ROW_EQ);
+}
+// [lon,lat] -> fractional [col,row] on the grid
 function project(lon, lat) {
   let dlon = lon - LON_CENTER;
   while (dlon > 180) dlon -= 360;
   while (dlon < -180) dlon += 360;
-  const col = ((dlon + LON_SPAN / 2) / LON_SPAN) * GRID_W;
-  const row = ((LAT_TOP - lat) / (LAT_TOP - LAT_BOTTOM)) * GRID_H;
-  return [col, row];
+  return [((dlon + LON_SPAN / 2) / LON_SPAN) * GRID_W, latToRow(lat)];
 }
 // [col,row] (stud center coords) -> [lon,lat]
 function toLonLat(col, row) {
   let lon = LON_CENTER - LON_SPAN / 2 + (col / GRID_W) * LON_SPAN;
   while (lon > 180) lon -= 360;
   while (lon < -180) lon += 360;
-  let lat = LAT_TOP - (row / GRID_H) * (LAT_TOP - LAT_BOTTOM);
-  lat = Math.max(-89.9, Math.min(89.9, lat)); // keep geoContains valid past the poles
+  const lat = Math.max(-89.9, Math.min(89.9, rowToLat(row))); // keep geoContains valid past the poles
   return [lon, lat];
 }
 // place -> nearest stud, 0-indexed, clamped to the grid
