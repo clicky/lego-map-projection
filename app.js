@@ -67,12 +67,21 @@ let highlight = null;
 const hasStuds = typeof STUD_PALETTE !== "undefined";
 const studColor = (col, row) => STUD_PALETTE[STUD_GRID.charCodeAt(row * GRID_W + col) - 48];
 
+// the map is drawn once to an offscreen canvas; the visible canvas blits it
+// and overlays the magnifier, so pointer moves don't re-render the mosaic.
+const base = document.createElement("canvas");
+const bctx = base.getContext("2d");
+let DPR = 1;
+let lens = null;          // { x, y } in logical canvas coords, or null
+const LENS_R = 144;       // lens radius (logical px)
+const LENS_Z = 3.2;       // magnification
+
 function setupCanvas() {
-  const dpr = window.devicePixelRatio || 1;
-  canvas.width = fullW * dpr;
-  canvas.height = fullH * dpr;
+  DPR = window.devicePixelRatio || 1;
+  for (const cv of [canvas, base]) { cv.width = fullW * DPR; cv.height = fullH * DPR; }
   canvas.style.aspectRatio = `${fullW} / ${fullH}`;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  bctx.setTransform(DPR, 0, 0, DPR, 0, 0);
 }
 
 // land-110m has no inland water, so lakes (Great Lakes etc.) read as land
@@ -91,24 +100,25 @@ function buildLandGrid(land, lakes) {
   return grid;
 }
 
+// draw the whole map to the offscreen canvas, then composite to the screen
 function render() {
-  ctx.clearRect(0, 0, fullW, fullH);
-  ctx.fillStyle = "#1b212b"; // panel (margins)
-  ctx.fillRect(0, 0, fullW, fullH);
-  ctx.fillStyle = "#0d2438"; // deep ocean backdrop
-  ctx.fillRect(MARGIN, MARGIN, cssW, cssH);
+  bctx.clearRect(0, 0, fullW, fullH);
+  bctx.fillStyle = "#1b212b"; // panel (margins)
+  bctx.fillRect(0, 0, fullW, fullH);
+  bctx.fillStyle = "#0d2438"; // deep ocean backdrop
+  bctx.fillRect(MARGIN, MARGIN, cssW, cssH);
 
   // stud mosaic
   const useStuds = mode === "photo" && hasStuds;
   const r = S * 0.42;
   for (let row = 0; row < GRID_H; row++) {
     for (let col = 0; col < GRID_W; col++) {
-      ctx.beginPath();
-      ctx.arc(px(col + 0.5), py(row + 0.5), r, 0, Math.PI * 2);
-      ctx.fillStyle = useStuds
+      bctx.beginPath();
+      bctx.arc(px(col + 0.5), py(row + 0.5), r, 0, Math.PI * 2);
+      bctx.fillStyle = useStuds
         ? studColor(col, row)
         : (landGrid && landGrid[row][col] ? "#eceadd" : "#2b6ca3");
-      ctx.fill();
+      bctx.fill();
     }
   }
 
@@ -116,61 +126,122 @@ function render() {
   if (highlight) {
     const pc = Math.floor(highlight.col / BRICK);
     const pr = Math.floor(highlight.row / BRICK);
-    ctx.fillStyle = "rgba(255,59,48,0.10)";
-    ctx.fillRect(px(pc * BRICK), py(pr * BRICK), BRICK * S, BRICK * S);
+    bctx.fillStyle = "rgba(255,59,48,0.10)";
+    bctx.fillRect(px(pc * BRICK), py(pr * BRICK), BRICK * S, BRICK * S);
   }
 
   // 16x16 brick grid
-  ctx.strokeStyle = "rgba(255,255,255,0.28)";
-  ctx.lineWidth = 1;
+  bctx.strokeStyle = "rgba(255,255,255,0.28)";
+  bctx.lineWidth = 1;
   for (let c = 0; c <= GRID_W; c += BRICK) {
-    ctx.beginPath(); ctx.moveTo(px(c), py(0)); ctx.lineTo(px(c), py(GRID_H)); ctx.stroke();
+    bctx.beginPath(); bctx.moveTo(px(c), py(0)); bctx.lineTo(px(c), py(GRID_H)); bctx.stroke();
   }
   for (let rr = 0; rr <= GRID_H; rr += BRICK) {
-    ctx.beginPath(); ctx.moveTo(px(0), py(rr)); ctx.lineTo(px(GRID_W), py(rr)); ctx.stroke();
+    bctx.beginPath(); bctx.moveTo(px(0), py(rr)); bctx.lineTo(px(GRID_W), py(rr)); bctx.stroke();
   }
   // outer frame
-  ctx.strokeStyle = "rgba(255,255,255,0.5)";
-  ctx.lineWidth = 1.5;
-  ctx.strokeRect(px(0), py(0), cssW, cssH);
+  bctx.strokeStyle = "rgba(255,255,255,0.5)";
+  bctx.lineWidth = 1.5;
+  bctx.strokeRect(px(0), py(0), cssW, cssH);
 
   // plate-number labels (1-8 across, 1-5 down); active plate in accent
   const activeC = highlight ? Math.floor(highlight.col / BRICK) : -1;
   const activeR = highlight ? Math.floor(highlight.row / BRICK) : -1;
-  ctx.font = "600 12px -apple-system, system-ui, sans-serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
+  bctx.font = "600 12px -apple-system, system-ui, sans-serif";
+  bctx.textAlign = "center";
+  bctx.textBaseline = "middle";
   for (let p = 0; p < GRID_W / BRICK; p++) {
-    ctx.fillStyle = p === activeC ? "#ff6b61" : "#9aa6b4";
-    ctx.fillText(String(p + 1), px(p * BRICK + BRICK / 2), MARGIN / 2);
+    bctx.fillStyle = p === activeC ? "#ff6b61" : "#9aa6b4";
+    bctx.fillText(String(p + 1), px(p * BRICK + BRICK / 2), MARGIN / 2);
   }
   for (let p = 0; p < GRID_H / BRICK; p++) {
-    ctx.fillStyle = p === activeR ? "#ff6b61" : "#9aa6b4";
-    ctx.fillText(String(p + 1), MARGIN / 2, py(p * BRICK + BRICK / 2));
+    bctx.fillStyle = p === activeR ? "#ff6b61" : "#9aa6b4";
+    bctx.fillText(String(p + 1), MARGIN / 2, py(p * BRICK + BRICK / 2));
   }
 
   // target: crosshair + glowing stud
   if (highlight) {
     const x = px(highlight.col + 0.5);
     const y = py(highlight.row + 0.5);
-    ctx.strokeStyle = "rgba(255,59,48,0.55)";
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(x, py(0)); ctx.lineTo(x, py(GRID_H));
-    ctx.moveTo(px(0), y); ctx.lineTo(px(GRID_W), y);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(x, y, S * 0.7, 0, Math.PI * 2);
-    ctx.fillStyle = "#ff3b30";
-    ctx.shadowColor = "#ff3b30";
-    ctx.shadowBlur = 14;
-    ctx.fill();
-    ctx.shadowBlur = 0;
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = "#fff";
-    ctx.beginPath(); ctx.arc(x, y, S * 0.7, 0, Math.PI * 2); ctx.stroke();
+    bctx.strokeStyle = "rgba(255,59,48,0.55)";
+    bctx.lineWidth = 1.5;
+    bctx.beginPath();
+    bctx.moveTo(x, py(0)); bctx.lineTo(x, py(GRID_H));
+    bctx.moveTo(px(0), y); bctx.lineTo(px(GRID_W), y);
+    bctx.stroke();
+    bctx.beginPath();
+    bctx.arc(x, y, S * 0.7, 0, Math.PI * 2);
+    bctx.fillStyle = "#ff3b30";
+    bctx.shadowColor = "#ff3b30";
+    bctx.shadowBlur = 14;
+    bctx.fill();
+    bctx.shadowBlur = 0;
+    bctx.lineWidth = 2;
+    bctx.strokeStyle = "#fff";
+    bctx.beginPath(); bctx.arc(x, y, S * 0.7, 0, Math.PI * 2); bctx.stroke();
+  }
+
+  paint();
+}
+
+// blit the offscreen map to the screen, then draw the magnifier if active
+function paint() {
+  ctx.clearRect(0, 0, fullW, fullH);
+  ctx.drawImage(base, 0, 0, fullW, fullH);
+  if (lens) drawLens();
+}
+
+function drawLens() {
+  const { x, y } = lens;
+  const srcR = LENS_R / LENS_Z;
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(x, y, LENS_R, 0, Math.PI * 2);
+  ctx.clip();
+  ctx.fillStyle = "#0d2438";
+  ctx.fillRect(x - LENS_R, y - LENS_R, LENS_R * 2, LENS_R * 2);
+  // magnified slice of the offscreen map (source rect is in device pixels)
+  ctx.drawImage(
+    base,
+    (x - srcR) * DPR, (y - srcR) * DPR, srcR * 2 * DPR, srcR * 2 * DPR,
+    x - LENS_R, y - LENS_R, LENS_R * 2, LENS_R * 2
+  );
+  // thin crosshair marking the exact sampled point
+  ctx.strokeStyle = "rgba(255,255,255,0.6)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(x - 9, y); ctx.lineTo(x + 9, y);
+  ctx.moveTo(x, y - 9); ctx.lineTo(x, y + 9);
+  ctx.stroke();
+  ctx.restore();
+  // lens rim
+  ctx.beginPath(); ctx.arc(x, y, LENS_R, 0, Math.PI * 2);
+  ctx.lineWidth = 3; ctx.strokeStyle = "rgba(255,255,255,0.85)"; ctx.stroke();
+  ctx.lineWidth = 1; ctx.strokeStyle = "rgba(0,0,0,0.55)"; ctx.stroke();
+  // under-cursor stud caption
+  const col = Math.floor((x - MARGIN) / S), row = Math.floor((y - MARGIN) / S);
+  if (col >= 0 && col < GRID_W && row >= 0 && row < GRID_H) {
+    const label = `${col + 1} × ${row + 1}`;
+    ctx.font = "600 12px -apple-system, system-ui, sans-serif";
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    const tw = ctx.measureText(label).width + 14;
+    const cy = y - LENS_R - 13; // caption above the lens
+    ctx.fillStyle = "rgba(0,0,0,0.72)";
+    ctx.fillRect(x - tw / 2, cy - 10, tw, 20);
+    ctx.fillStyle = "#fff";
+    ctx.fillText(label, x, cy);
   }
 }
+
+function lensFromEvent(e) {
+  const rect = canvas.getBoundingClientRect();
+  const x = ((e.clientX - rect.left) / rect.width) * fullW;
+  const y = ((e.clientY - rect.top) / rect.height) * fullH;
+  if (x < MARGIN || x > MARGIN + cssW || y < MARGIN || y > MARGIN + cssH) return null;
+  return { x, y };
+}
+canvas.addEventListener("pointermove", (e) => { lens = lensFromEvent(e); paint(); });
+canvas.addEventListener("pointerleave", () => { lens = null; paint(); });
 
 function showResult(name, lon, lat, stud) {
   const col1 = stud.col + 1, row1 = stud.row + 1;
