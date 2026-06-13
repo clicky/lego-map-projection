@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LEGO World Map (31203) — Find the Stud</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>LEGO World Map &mdash; Find the Stud</h1>
+    <p class="sub">Type a place. It maps onto the 128&times;80 stud grid of LEGO Art set 31203 (Equal&nbsp;Earth, Africa/Europe centered).</p>
+  </header>
+
+  <form id="search" autocomplete="off">
+    <input id="query" type="text" placeholder="e.g. Tokyo, Mount Everest, McNeel Seattle&hellip;" aria-label="Place to find" />
+    <button type="submit">Find stud</button>
+  </form>
+
+  <p id="status" class="status" role="status"></p>
+
+  <div id="stage">
+    <canvas id="map"></canvas>
+  </div>
+
+  <section id="result" class="result hidden">
+    <h2 id="place-name"></h2>
+    <dl>
+      <div><dt>Stud (col &times; row)</dt><dd id="r-stud"></dd></div>
+      <div><dt>Brick plate</dt><dd id="r-plate"></dd></div>
+      <div><dt>Stud within plate</dt><dd id="r-local"></dd></div>
+      <div><dt>Coordinates</dt><dd id="r-coord"></dd></div>
+    </dl>
+  </section>
+
+  <footer>
+    <p>Studs counted from the top-left, 1-indexed. Plates are the 16&times;16 bricks (8 across &times; 5 down).</p>
+    <p>The set squares Equal&nbsp;Earth into a 1.6:1 rectangle, so positions are a close approximation, not survey-grade. Geocoding by <a href="https://nominatim.openstreetmap.org/">Nominatim</a> / &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors. Not affiliated with the LEGO Group.</p>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
